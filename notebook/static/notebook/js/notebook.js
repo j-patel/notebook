@@ -4,32 +4,31 @@
 /**
  * @module notebook
  */
-"use strict";
-import IPython from 'base/js/namespace';
-import _ from 'underscore';
-import utils from 'base/js/utils';
-import dialog from 'base/js/dialog';
-import cellmod from 'notebook/js/cell';
-import textcell from 'notebook/js/textcell';
-import codecell from 'notebook/js/codecell';
-import moment from 'moment';
-import configmod from 'services/config';
-import session from 'services/sessions/session';
-import celltoolbar from 'notebook/js/celltoolbar';
-import marked from 'components/marked/lib/marked';
-import CodeMirror from 'codemirror/lib/codemirror';
-import runMode from 'codemirror/addon/runmode/runmode';
-import mathjaxutils from 'notebook/js/mathjaxutils';
-import keyboard from 'base/js/keyboard';
-import tooltip from 'notebook/js/tooltip';
-import default_celltoolbar from 'notebook/js/celltoolbarpresets/default';
-import rawcell_celltoolbar from 'notebook/js/celltoolbarpresets/rawcell';
-import slideshow_celltoolbar from 'notebook/js/celltoolbarpresets/slideshow';
-import attachments_celltoolbar from 'notebook/js/celltoolbarpresets/attachments';
-import scrollmanager from 'notebook/js/scrollmanager';
-import commandpalette from 'notebook/js/commandpalette';
-import {ShortcutEditor} from 'notebook/js/shortcuteditor';
-
+define(function (require) {
+    "use strict";
+    var IPython = require('base/js/namespace');
+    var $ = require('jquery');
+    var _ = require('underscore');
+    var utils = require('base/js/utils');
+    var dialog = require('base/js/dialog');
+    var cellmod = require('notebook/js/cell');
+    var textcell = require('notebook/js/textcell');
+    var codecell = require('notebook/js/codecell');
+    var moment = require('moment');
+    var configmod = require('services/config');
+    var session = require('services/sessions/session');
+    var celltoolbar = require('notebook/js/celltoolbar');
+    var marked = require('components/marked/lib/marked');
+    var CodeMirror = require('codemirror/lib/codemirror');
+    var runMode = require('codemirror/addon/runmode/runmode');
+    var mathjaxutils = require('notebook/js/mathjaxutils');
+    var keyboard = require('base/js/keyboard');
+    var tooltip = require('notebook/js/tooltip');
+    var default_celltoolbar = require('notebook/js/celltoolbarpresets/default');
+    var rawcell_celltoolbar = require('notebook/js/celltoolbarpresets/rawcell');
+    var slideshow_celltoolbar = require('notebook/js/celltoolbarpresets/slideshow');
+    var scrollmanager = require('notebook/js/scrollmanager');
+    var commandpalette = require('notebook/js/commandpalette');
     var _SOFT_SELECTION_CLASS = 'jupyter-soft-selected';
 
     function soft_selected(cell){
@@ -50,7 +49,7 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
      * @param {string}          options.notebook_path
      * @param {string}          options.notebook_name
      */
-    export function Notebook(selector, options) {
+    var Notebook = function (selector, options) {
         this.config = options.config;
         this.class_config = new configmod.ConfigWithDefaults(this.config, 
                                         Notebook.options_default, 'Notebook');
@@ -127,10 +126,10 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
         this.kernel = null;
         this.kernel_busy = false;
         this.clipboard = null;
-        this.clipboard_attachments = null;
-        this.undelete_backup_stack = [];
+        this.undelete_backup = null;
+        this.undelete_index = null;
+        this.undelete_below = false;
         this.paste_enabled = false;
-        this.paste_attachments_enabled = false;
         this.writable = false;
         // It is important to start out in command mode to match the intial mode
         // of the KeyboardManager.
@@ -143,10 +142,10 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
         this.autosave_interval = 0;
         this.autosave_timer = null;
         // autosave *at most* every two minutes
-        this.minimum_autosave_interval = 120000;
+        this.minimum_autosave_interval = 12000;
         this.notebook_name_blacklist_re = /[\/\\:]/;
         this.nbformat = 4; // Increment this when changing the nbformat
-        this.nbformat_minor = this.current_nbformat_minor = 1; // Increment this when changing the nbformat
+        this.nbformat_minor = this.current_nbformat_minor = 0; // Increment this when changing the nbformat
         this.codemirror_mode = 'text';
         this.create_elements();
         this.bind_events();
@@ -159,57 +158,7 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
         default_celltoolbar.register(this);
         rawcell_celltoolbar.register(this);
         slideshow_celltoolbar.register(this);
-        attachments_celltoolbar.register(this);
 
-        var that = this;
-
-        Object.defineProperty(this, 'line_numbers', {
-            get: function() {
-                var d = that.config.data || {};
-                var cmc =  (d['Cell'] || {}) ['cm_config'] || {};
-                return cmc['lineNumbers'] || false;
-            },
-            set: function(value) {
-                that.config.update({
-                    'Cell': {
-                        'cm_config': {
-                            'lineNumbers':value
-                        }
-                    }
-                });
-            }
-        });
-        
-        Object.defineProperty(this, 'header', {
-            get: function() {
-                return that.class_config.get_sync('Header');
-            },
-            set: function(value) {
-                that.class_config.set('Header', value);
-            }
-        });
-                
-        Object.defineProperty(this, 'toolbar', {
-            get: function() {
-                return that.class_config.get_sync('Toolbar');
-            },
-            set: function(value) {
-                that.class_config.set('Toolbar', value);
-            }
-        });
-        
-        this.class_config.get('Header').then(function(header) {
-            if (header === false) {
-                that.keyboard_manager.actions.call('jupyter-notebook:hide-header');
-            }
-        });
-        
-        this.class_config.get('Toolbar').then(function(toolbar) {
-          if (toolbar === false) {
-              that.keyboard_manager.actions.call('jupyter-notebook:hide-toolbar');
-          }
-        });
-        
         // prevent assign to miss-typed properties.
         Object.seal(this);
     };
@@ -217,9 +166,7 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
     Notebook.options_default = {
         // can be any cell type, or the special values of
         // 'above', 'below', or 'selected' to get the value from another cell.
-        default_cell_type: 'code',
-        Header: true,
-        Toolbar: true
+        default_cell_type: 'code'
     };
 
     /**
@@ -304,8 +251,10 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
             if (!existing_spec || ! _.isEqual(existing_spec, that.metadata.kernelspec)) {
                 that.set_dirty(true);
             }
-            // start a new session
-            that.start_session(data.name);
+            // start session if the current session isn't already correct
+            if (!(that.session && that.session.kernel && that.session.kernel.name === data.name)) {
+                that.start_session(data.name);
+            }
         });
 
         this.events.on('kernel_ready.Kernel', function(event, data) {
@@ -408,10 +357,6 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
 
     Notebook.prototype.show_command_palette = function() {
         var x = new commandpalette.CommandPalette(this);
-    };
-
-    Notebook.prototype.show_shortcuts_editor = function() {
-        new ShortcutEditor(this);
     };
 
     /**
@@ -604,13 +549,6 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
             result = this.get_cell(index+1);
         }
         return result;
-    };
-    
-    /**
-     * Toggles the display of line numbers in all cells.
-     */
-    Notebook.prototype.toggle_all_line_numbers = function () {
-        this.line_numbers = !this.line_numbers;
     };
 
     /**
@@ -1071,11 +1009,7 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
             indices = this.get_selected_cells_indices();
         }
 
-        var undelete_backup = {
-            cells: [],
-            below: false,
-            index: 0,
-        };
+        this.undelete_backup = [];
 
         var cursor_ix_before = this.get_selected_index();
         var deleting_before_cursor = 0;
@@ -1095,10 +1029,13 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
         indices.sort(function(a, b) {return b-a;});
         for (i=0; i < indices.length; i++) {
             var cell = this.get_cell(indices[i]);
-            undelete_backup.cells.push(cell.toJSON());
+            this.undelete_backup.push(cell.toJSON());
             this.get_cell_element(indices[i]).remove();
             this.events.trigger('delete.Cell', {'cell': cell, 'index': indices[i]});
         }
+
+        // Flip the backup copy of cells back to first-to-last order
+        this.undelete_backup.reverse();
 
         var new_ncells = this.ncells();
         // Always make sure we have at least one cell.
@@ -1107,13 +1044,14 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
             new_ncells = 1;
         }
 
+        this.undelete_below = false;
         var cursor_ix_after = this.get_selected_index();
         if (cursor_ix_after === null) {
             // Selected cell was deleted
             cursor_ix_after = cursor_ix_before - deleting_before_cursor;
             if (cursor_ix_after >= new_ncells) {
                 cursor_ix_after = new_ncells - 1;
-                undelete_backup.below = true;
+                this.undelete_below = true;
             }
             this.select(cursor_ix_after);
         }
@@ -1121,16 +1059,15 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
         // Check if the cells were after the cursor
         for (i=0; i < indices.length; i++) {
             if (indices[i] > cursor_ix_before) {
-                undelete_backup.below = true;
+                this.undelete_below = true;
             }
         }
 
         // This will put all the deleted cells back in one location, rather than
         // where they came from. It will do until we have proper undo support.
-        undelete_backup.index = cursor_ix_after;
+        this.undelete_index = cursor_ix_after;
         $('#undelete_cell').removeClass('disabled');
 
-        this.undelete_backup_stack.push(undelete_backup);
         this.set_dirty(true);
 
         return this;
@@ -1154,25 +1091,29 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
      * Restore the most recently deleted cells.
      */
     Notebook.prototype.undelete_cell = function() {
-        if (this.undelete_backup_stack.length > 0) {
-            var undelete_backup = this.undelete_backup_stack.pop();
-            var i, cell_data, new_cell, insert;
-            if (undelete_backup.below) {
-                insert = $.proxy(this.insert_cell_below, this);
+        if (this.undelete_backup !== null && this.undelete_index !== null) {
+            var i, cell_data, new_cell;
+            if (this.undelete_below) {
+                for (i = this.undelete_backup.length-1; i >= 0; i--) {
+                    cell_data = this.undelete_backup[i];
+                    new_cell = this.insert_cell_below(cell_data.cell_type,
+                        this.undelete_index);
+                    new_cell.fromJSON(cell_data);
+                }
             } else {
-                insert = $.proxy(this.insert_cell_above, this);
-            }
-            for (i=0; i < undelete_backup.cells.length; i++) {
-                cell_data = undelete_backup.cells[i];
-                new_cell = insert(cell_data.cell_type, undelete_backup.index);
-                new_cell.fromJSON(cell_data);
+                for (i=0; i < this.undelete_backup.length; i++) {
+                    cell_data = this.undelete_backup[i];
+                    new_cell = this.insert_cell_above(cell_data.cell_type,
+                        this.undelete_index);
+                    new_cell.fromJSON(cell_data);
+                }
             }
 
             this.set_dirty(true);
+            this.undelete_backup = null;
+            this.undelete_index = null;
         }
-        if (this.undelete_backup_stack.length === 0) {
-            $('#undelete_cell').addClass('disabled');
-        }
+        $('#undelete_cell').addClass('disabled');
     };
 
     /**
@@ -1277,13 +1218,11 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
         } else {
             return false;
         }
-        
-        this.undelete_backup_stack.map(function (undelete_backup) {
-            if (index < undelete_backup.index) {
-                undelete_backup.index += 1;
-            }
-        });
-        this.set_dirty(true);
+
+        if (this.undelete_index !== null && index <= this.undelete_index) {
+            this.undelete_index = this.undelete_index + 1;
+            this.set_dirty(true);
+        }
         return true;
     };
 
@@ -1296,7 +1235,7 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
      * @return {Cell|null} handle to created cell or null
      */
     Notebook.prototype.insert_cell_above = function (type, index) {
-        if (index === null || index === undefined) {
+        if (index === null || index === undefined) {            
             index = Math.min(this.get_selected_index(index), this.get_anchor_index());
         }
         return this.insert_cell_at_index(type, index);
@@ -1361,9 +1300,6 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
                 }
                 //metadata
                 target_cell.metadata = source_cell.metadata;
-                // attachments (we transfer them so they aren't lost if the
-                // cell is turned back into markdown)
-                target_cell.attachments = source_cell.attachments;
 
                 target_cell.set_text(text);
                 // make this value the starting point, so that we can only undo
@@ -1412,8 +1348,6 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
                 }
                 // metadata
                 target_cell.metadata = source_cell.metadata;
-                target_cell.attachments = source_cell.attachments;
-
                 // We must show the editor before setting its contents
                 target_cell.unrender();
                 target_cell.set_text(text);
@@ -1466,10 +1400,6 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
                 }
                 //metadata
                 target_cell.metadata = source_cell.metadata;
-                // attachments (we transfer them so they aren't lost if the
-                // cell is turned back into markdown)
-                target_cell.attachments = source_cell.attachments;
-
                 // We must show the editor before setting its contents
                 target_cell.unrender();
                 target_cell.set_text(text);
@@ -1736,112 +1666,6 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
         this.merge_cells([index, index+1], false);
     };
 
-    // Attachments handling
-
-    /**
-     * Shows a dialog letting the user pick an image from her computer and
-     * insert it into the edited markdown cell
-     */
-    Notebook.prototype.insert_image = function () {
-        var that = this;
-        var cell = this.get_selected_cell();
-        // The following should not happen as the menu item is greyed out
-        // when those conditions are not fullfilled (see MarkdownCell
-        // unselect/select/unrender handlers)
-        if (cell.cell_type != 'markdown') {
-            console.log('Error: insert_image called on non-markdown cell');
-            return;
-        }
-        if (cell.rendered) {
-            console.log('Error: insert_image called on rendered cell');
-            return;
-        }
-        dialog.insert_image({
-            callback: function(file) {
-                cell.edit_mode();
-                cell.insert_inline_image_from_blob(file);
-            },
-            notebook: this,
-            keyboard_manager: this.keyboard_manager
-        });
-    };
-
-    /**
-     * Cut the attachments of a cell
-     */
-    Notebook.prototype.cut_cell_attachments = function() {
-        var cell = this.get_selected_cell();
-        if (cell.attachments !== undefined) {
-            this.clipboard_attachments = cell.attachments;
-            this.enable_attachments_paste();
-            delete cell.attachments;
-            cell.unrender();
-            cell.render();
-        }
-    };
-
-    /**
-     * Copy the attachments of a cell
-     */
-    Notebook.prototype.copy_cell_attachments = function() {
-        var cell = this.get_selected_cell();
-        if (cell.attachments !== undefined) {
-          // Do a deep copy of attachments to avoid subsequent modification
-          // to the cell to modify the clipboard
-          this.clipboard_attachments = $.extend(true, {}, cell.attachments);
-          this.enable_attachments_paste();
-        }
-    };
-
-    /**
-     * Paste the attachments in the clipboard into the currently selected
-     * cell
-     */
-    Notebook.prototype.paste_cell_attachments = function() {
-        if (this.clipboard_attachments !== null &&
-            this.paste_attachments_enabled) {
-            var cell = this.get_selected_cell();
-            if (cell.attachments === undefined) {
-              cell.attachments = {};
-            }
-            // Do a deep copy so we can paste multiple times
-            $.extend(true, cell.attachments, this.clipboard_attachments);
-            cell.unrender();
-            cell.render();
-        }
-    };
-
-    /**
-     * Disable the "Paste Cell Attachments" menu item
-     */
-    Notebook.prototype.disable_attachments_paste = function () {
-        if (this.paste_attachments_enabled) {
-            $('#paste_cell_attachments').addClass('disabled');
-            this.paste_attachments_enabled = false;
-        }
-    };
-
-    /**
-     * Enable the "Paste Cell Attachments" menu item
-     */
-    Notebook.prototype.enable_attachments_paste = function () {
-        var that = this;
-        if (!this.paste_attachments_enabled) {
-            $('#paste_cell_attachments').removeClass('disabled');
-            this.paste_attachments_enabled = true;
-        }
-    };
-
-    /**
-     * Enable/disable the "Insert image" menu item
-     */
-    Notebook.prototype.set_insert_image_enabled = function(enabled) {
-        if (enabled) {
-            $('#insert_image').removeClass('disabled');
-        } else {
-            $('#insert_image').addClass('disabled');
-        }
-    };
 
     // Cell collapsing and output clearing
 
@@ -2128,7 +1952,7 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
         var success = $.proxy(this._session_started, this);
         var failure = $.proxy(this._session_start_failed, this);
 
-        if (this.session && this.session.kernel) {
+        if (this.session !== null) {
             this.session.restart(options, success, failure);
         } else {
             this.session = new session.Session(options);
@@ -2177,7 +2001,7 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
                 'Are you sure you want to restart the current kernel and re-execute the whole notebook?  All variables and outputs will be lost.'
             ),
             buttons : {
-                "Restart and Run All Cells" : {
+                "Restart & run all cells" : {
                     "class" : "btn-danger",
                     "click" : function () {
                         that.execute_all_cells();
@@ -2204,7 +2028,7 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
                 'Do you want to restart the current kernel and clear all output?  All variables and outputs will be lost.'
             ),
             buttons : {
-                "Restart and Clear All Outputs" : {
+                "Restart & clear all outputs" : {
                     "class" : "btn-danger",
                     "click" : function (){
                         that.clear_all_output();
@@ -2265,7 +2089,7 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
         options.dialog.keyboard_manager = this.keyboard_manager;
         // add 'Continue running' cancel button
         var buttons = {
-            "Continue Running": {},
+            "Continue running": {},
         };
         // hook up button.click actions after restart promise resolves
         Object.keys(options.dialog.buttons).map(function (key) {
@@ -2463,9 +2287,8 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
     };
 
     /**
-     Move the unused attachments garbage collection logic to TextCell.toJSON.
      * Load a notebook from JSON (.ipynb).
-     *
+     * 
      * @param {object} data - JSON representation of a notebook
      */
     Notebook.prototype.fromJSON = function (data) {
@@ -2528,7 +2351,9 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
             if (cell.cell_type === 'code' && !cell.output_area.trusted) {
                 trusted = false;
             }
-            cell_array[i] = cell.toJSON(true);
+            cell_array[i] = cell.toJSON();
+            console.log("IN notebook.js");
+            console.log(cell_array[i]);
         }
         var data = {
             cells: cell_array,
@@ -2536,6 +2361,7 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
             nbformat: this.nbformat,
             nbformat_minor: this.nbformat_minor
         };
+        alert(data.cell_uuid);
         if (trusted !== this.trusted) {
             this.trusted = trusted;
             this.events.trigger("trust_changed.Notebook", trusted);
@@ -2576,13 +2402,12 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
     /**
      * Save this notebook on the server. This becomes a notebook instance's
      * .save_notebook method *after* the entire notebook has been loaded.
-     *
      */
     Notebook.prototype.save_notebook = function (check_last_modified) {
         if (check_last_modified === undefined) {
             check_last_modified = true;
         }
-
+        
         var error;
         if (!this._fully_loaded) {
             error = new Error("Load failed, save is disabled");
@@ -2736,7 +2561,7 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
                 " Selecting trust will immediately reload this notebook in a trusted state."
             ).append(
                 " For more information, see the "
-            ).append($("<a>").attr("href", "https://jupyter-notebook.readthedocs.io/en/latest/security.html")
+            ).append($("<a>").attr("href", "http://ipython.org/ipython-doc/2/notebook/security.html")
                 .text("Jupyter security documentation")
             ).append(".")
         );
@@ -2781,7 +2606,7 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
         var parent = utils.url_path_split(this.notebook_path)[0];
         var p;
         if (this.dirty) {
-            p = this.save_notebook(true);
+            p = this.save_notebook();
         } else {
             p = Promise.resolve();
         }
@@ -3051,7 +2876,7 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
      */
     Notebook.prototype.save_checkpoint = function () {
         this._checkpoint_after_save = true;
-        this.save_notebook(true);
+        this.save_notebook();
     };
     
     /**
@@ -3158,16 +2983,15 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
             keyboard_manager: this.keyboard_manager,
             title : "Revert notebook to checkpoint",
             body : body,
-            default_button: "Cancel",
             buttons : {
-                Cancel: {},
                 Revert : {
                     class : "btn-danger",
                     click : function () {
                         that.restore_checkpoint(checkpoint.id);
                     }
+                },
+                Cancel : {}
                 }
-            }
         });
     };
     
@@ -3218,3 +3042,6 @@ import {ShortcutEditor} from 'notebook/js/shortcuteditor';
         this.events.trigger('checkpoint_deleted.Notebook');
         this.load_notebook(this.notebook_path);
     };
+
+    return {'Notebook': Notebook};
+});
