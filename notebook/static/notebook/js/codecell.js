@@ -330,8 +330,13 @@ define([
         this.element.addClass("running");
         var callbacks = this.get_callbacks();
         
+        /*Edit - Jay Patel - set uuid - generate new uuid if no uuid is assigned to a cell*/        
+        if(this.get_uuid()===undefined){
+            this.set_uuid(0);
+        }
+        
         this.last_msg_id = this.kernel.execute(this.get_text(), callbacks, {silent: false, store_history: true,
-            stop_on_error : stop_on_error});
+            stop_on_error : stop_on_error, cell_uuid : this.cell_uuid}); /*Edit - Jay Patel - Added cell_uuid*/
         CodeCell.msg_cells[this.last_msg_id] = this;
         this.render();
         this.events.trigger('execute.CodeCell', {cell: this});
@@ -516,16 +521,18 @@ define([
                 this.code_mirror.clearHistory();
                 this.auto_highlight();
             }
-            alert("FromJSON2:"+data.cell_uuid);
+
+    /*Edit - Jay Patel - set uuid as input_prompt and as uuid */
             //this.set_input_prompt(data.execution_count);
-//Edit
             this.set_input_prompt(data.cell_uuid);
+            this.set_uuid(data.cell_uuid); /*----------------*/
             this.output_area.trusted = data.metadata.trusted || false;
             this.output_area.fromJSON(data.outputs, data.metadata);
         }
     };
 
-    //http://stackoverflow.com/a/105074/2609272
+    /*Edit - Jay Patel - generate new uuid */
+    //Reference taken from http://stackoverflow.com/a/105074/2609272
     //RFC 4122 uuid.v4() is recommended over this method
     function guid() {
       return s4() + s4() + '-' + s4() + '-' + s4() + '-' +
@@ -542,15 +549,13 @@ define([
         var data = Cell.prototype.toJSON.apply(this);
         data.source = this.get_text();
         // is finite protect against undefined and '*' value
-
         if (isFinite(this.input_prompt_number)) {
             data.execution_count = this.input_prompt_number;
         } else {
             data.execution_count = null; 
-             
         }
-//Edit - Jay
-        data.cell_uuid = guid();
+    /* Edit - Jay Patel - get uuid and assign it to cell_uuid*/ 
+        data.cell_uuid = this.get_uuid();
         var outputs = this.output_area.toJSON();
         data.outputs = outputs;
         data.metadata.trusted = this.output_area.trusted;
@@ -561,6 +566,18 @@ define([
             data.metadata.scrolled = this.output_area.scroll_state;
         }
         return data;
+    };
+    
+    /* Edit - Jay Patel - getter and setter methods for cell_uuid */ 
+    CodeCell.prototype.set_uuid = function(uuid){
+        if(uuid===0)
+            this.cell_uuid = guid();
+        else
+            this.cell_uuid = uuid;
+    };
+    
+    CodeCell.prototype.get_uuid = function(){
+        return this.cell_uuid;
     };
 
     /**
