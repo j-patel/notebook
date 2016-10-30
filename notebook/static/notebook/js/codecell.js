@@ -103,6 +103,7 @@ define([
         // create all attributed in constructor function
         // even if null for V8 VM optimisation
         this.input_prompt_number = null;
+        this.cell_uuid = null; //Edit - Jay Paatel - Initialize cell_uuid as null for cell_type="code"
         this.celltoolbar = null;
         this.output_area = null;
 
