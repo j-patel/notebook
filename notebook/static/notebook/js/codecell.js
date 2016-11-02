@@ -103,7 +103,7 @@ define([
         // create all attributed in constructor function
         // even if null for V8 VM optimisation
         this.input_prompt_number = null;
-        this.cell_uuid = null; //Edit - Jay Paatel - Initialize cell_uuid as null for cell_type="code"
+        this.cell_uuid = null; //Edit - Jay Patel - Initialize cell_uuid as null for cell_type="code"
         this.celltoolbar = null;
         this.output_area = null;
 
@@ -332,7 +332,7 @@ define([
         var callbacks = this.get_callbacks();
         
         /*Edit - Jay Patel - set uuid - generate new uuid if no uuid is assigned to a cell*/        
-        if(this.get_uuid()===undefined){
+        if(this.get_uuid()===undefined || this.get_uuid()===null){
             this.set_uuid(0);
         }
         
@@ -532,20 +532,6 @@ define([
         }
     };
 
-    /*Edit - Jay Patel - generate new uuid */
-    //Reference taken from http://stackoverflow.com/a/105074/2609272
-    //RFC 4122 uuid.v4() is recommended over this method
-    function guid() {
-      return s4() + s4() + '-' + s4() + '-' + s4() + '-' +
-        s4() + '-' + s4() + s4() + s4();
-    }
-    
-    function s4() {
-      return Math.floor((1 + Math.random()) * 0x10000)
-        .toString(16)
-        .substring(1);
-    }
-
     CodeCell.prototype.toJSON = function () {
         var data = Cell.prototype.toJSON.apply(this);
         data.source = this.get_text();
@@ -569,10 +555,28 @@ define([
         return data;
     };
     
+    /* Edit - Jay Patel - generate uuid and getter and setter methods for cell_uuid */ 
+    /*Reference taken from /base/js/utils.js*/
+    CodeCell.prototype.generate_uuid = function () {
+        /**
+         * http://www.ietf.org/rfc/rfc4122.txt
+         */
+        var s = [];
+        var hexDigits = "0123456789abcdef";
+        for (var i = 0; i < 32; i++) {
+            s[i] = hexDigits.substr(Math.floor(Math.random() * 0x10), 1);
+        }
+        s[12] = "4";  // bits 12-15 of the time_hi_and_version field to 0010
+        s[16] = hexDigits.substr((s[16] & 0x3) | 0x8, 1);  // bits 6-7 of the clock_seq_hi_and_reserved to 01
+
+        var uuid = s.join("");
+        return uuid;
+    };
+    
     /* Edit - Jay Patel - getter and setter methods for cell_uuid */ 
     CodeCell.prototype.set_uuid = function(uuid){
         if(uuid===0)
-            this.cell_uuid = guid();
+            this.cell_uuid = this.generate_uuid();
         else
             this.cell_uuid = uuid;
     };
