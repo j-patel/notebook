@@ -11,6 +11,7 @@
 
 define([
     'base/js/namespace',
+    'jquery',
     'base/js/utils',
     'base/js/keyboard',
     'services/config',
@@ -22,6 +23,7 @@ define([
     'codemirror/mode/python/python',
     'notebook/js/codemirror-ipython'
 ], function(IPython,
+    $,
     utils,
     keyboard,
     configmod,
@@ -96,11 +98,12 @@ define([
         this.tooltip = options.tooltip;
         this.config = options.config;
         this.class_config = new configmod.ConfigWithDefaults(this.config,
-                                        CodeCell.options_default, 'CodeCell');
+                                        CodeCell.config_defaults, 'CodeCell');
 
         // create all attributed in constructor function
         // even if null for V8 VM optimisation
         this.input_prompt_number = null;
+        this.cell_uuid = null; //Edit - Jay Patel - Initialize cell_uuid as null for cell_type="code"
         this.celltoolbar = null;
         this.output_area = null;
 
@@ -108,7 +111,7 @@ define([
         this.completer = null;
 
         Cell.apply(this,[{
-            config: options.config, 
+            config: $.extend({}, CodeCell.options_default), 
             keyboard_manager: options.keyboard_manager, 
             events: this.events}]);
 
@@ -123,7 +126,11 @@ define([
     CodeCell.options_default = {
         cm_config : {
             extraKeys: {
+                "Tab" :  "indentMore",
+                "Shift-Tab" : "indentLess",
                 "Backspace" : "delSpaceToPrevTabStop",
+                "Cmd-/" : "toggleComment",
+                "Ctrl-/" : "toggleComment"
             },
             mode: 'text',
             theme: 'ipython',
@@ -140,6 +147,8 @@ define([
             'magic_text/x-cython' :{'reg':['^%%cython']},
         },
     };
+
+    CodeCell.config_defaults = CodeCell.options_default;
 
     CodeCell.msg_cells = {};
 
@@ -169,8 +178,6 @@ define([
             if (that.keyboard_manager) {
                 that.keyboard_manager.enable();
             }
-
-            that.code_mirror.setOption('readOnly', !that.is_editable());
         });
         this.code_mirror.on('keydown', $.proxy(this.handle_keyevent,this));
         $(this.code_mirror.getInputField()).attr("spellcheck", "false");
@@ -181,12 +188,10 @@ define([
         cell.append(input).append(output);
         this.element = cell;
         this.output_area = new outputarea.OutputArea({
-            config: this.config,
-            selector: output,
-            prompt_area: true,
-            events: this.events,
-            keyboard_manager: this.keyboard_manager,
-        });
+            selector: output, 
+            prompt_area: true, 
+            events: this.events, 
+            keyboard_manager: this.keyboard_manager});
         this.completer = new completer.Completer(this, this.events);
     };
 
@@ -326,8 +331,13 @@ define([
         this.element.addClass("running");
         var callbacks = this.get_callbacks();
         
+        /*Edit - Jay Patel - set uuid - generate new uuid if no uuid is assigned to a cell*/        
+        if(this.get_uuid()===undefined || this.get_uuid()===null){
+            this.set_uuid(0);
+        }
+        
         this.last_msg_id = this.kernel.execute(this.get_text(), callbacks, {silent: false, store_history: true,
-            stop_on_error : stop_on_error});
+            stop_on_error : stop_on_error, cell_uuid : this.cell_uuid}); /*Edit - Jay Patel - Added cell_uuid*/
         CodeCell.msg_cells[this.last_msg_id] = this;
         this.render();
         this.events.trigger('execute.CodeCell', {cell: this});
@@ -349,11 +359,9 @@ define([
             },
             iopub : {
                 output : function() { 
-                    that.events.trigger('set_dirty.Notebook', {value: true});
                     that.output_area.handle_output.apply(that.output_area, arguments);
                 }, 
                 clear_output : function() { 
-                    that.events.trigger('set_dirty.Notebook', {value: true});
                     that.output_area.handle_clear_output.apply(that.output_area, arguments);
                 }, 
             },
@@ -478,7 +486,6 @@ define([
         var prompt_html = CodeCell.input_prompt_function(this.input_prompt_number, nline);
         // This HTML call is okay because the user contents are escaped.
         this.element.find('div.input_prompt').html(prompt_html);
-        this.events.trigger('set_dirty.Notebook', {value: true});
     };
 
 
@@ -515,12 +522,15 @@ define([
                 this.code_mirror.clearHistory();
                 this.auto_highlight();
             }
-            this.set_input_prompt(data.execution_count);
+
+    /*Edit - Jay Patel - set uuid as input_prompt and as uuid */
+            //this.set_input_prompt(data.execution_count);
+            this.set_input_prompt(data.cell_uuid);
+            this.set_uuid(data.cell_uuid); /*----------------*/
             this.output_area.trusted = data.metadata.trusted || false;
             this.output_area.fromJSON(data.outputs, data.metadata);
         }
     };
-
 
     CodeCell.prototype.toJSON = function () {
         var data = Cell.prototype.toJSON.apply(this);
@@ -529,8 +539,10 @@ define([
         if (isFinite(this.input_prompt_number)) {
             data.execution_count = this.input_prompt_number;
         } else {
-            data.execution_count = null;
+            data.execution_count = null; 
         }
+    /* Edit - Jay Patel - get uuid and assign it to cell_uuid*/ 
+        data.cell_uuid = this.get_uuid();
         var outputs = this.output_area.toJSON();
         data.outputs = outputs;
         data.metadata.trusted = this.output_area.trusted;
@@ -541,6 +553,36 @@ define([
             data.metadata.scrolled = this.output_area.scroll_state;
         }
         return data;
+    };
+    
+    /* Edit - Jay Patel - generate uuid and getter and setter methods for cell_uuid */ 
+    /*Reference taken from /base/js/utils.js*/
+    CodeCell.prototype.generate_uuid = function () {
+        /**
+         * http://www.ietf.org/rfc/rfc4122.txt
+         */
+        var s = [];
+        var hexDigits = "0123456789abcdef";
+        for (var i = 0; i < 32; i++) {
+            s[i] = hexDigits.substr(Math.floor(Math.random() * 0x10), 1);
+        }
+        s[12] = "4";  // bits 12-15 of the time_hi_and_version field to 0010
+        s[16] = hexDigits.substr((s[16] & 0x3) | 0x8, 1);  // bits 6-7 of the clock_seq_hi_and_reserved to 01
+
+        var uuid = s.join("");
+        return uuid;
+    };
+    
+    /* Edit - Jay Patel - getter and setter methods for cell_uuid */ 
+    CodeCell.prototype.set_uuid = function(uuid){
+        if(uuid===0)
+            this.cell_uuid = this.generate_uuid();
+        else
+            this.cell_uuid = uuid;
+    };
+    
+    CodeCell.prototype.get_uuid = function(){
+        return this.cell_uuid;
     };
 
     /**
