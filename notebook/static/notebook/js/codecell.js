@@ -38,7 +38,7 @@ define([
     "use strict";
     
     var Cell = cell.Cell;
-
+    
     /* local util for codemirror */
     var posEq = function(a, b) {return a.line === b.line && a.ch === b.ch;};
 
@@ -106,7 +106,6 @@ define([
         this.cell_uuid = null; //Edit - Jay Patel - Initialize cell_uuid as null for cell_type="code"
         this.celltoolbar = null;
         this.output_area = null;
-
         this.last_msg_id = null;
         this.completer = null;
 
@@ -378,7 +377,10 @@ define([
      * @private
      */
     CodeCell.prototype._handle_execute_reply = function (msg) {
-        this.set_input_prompt(msg.content.execution_count);
+        
+        var this_execution_count = msg.content.execution_count
+        
+        this.set_input_prompt(this_execution_count);
         this.element.removeClass("running");
         this.events.trigger('set_dirty.Notebook', {value: true});
     };
@@ -531,7 +533,7 @@ define([
             this.output_area.fromJSON(data.outputs, data.metadata);
         }
     };
-
+    
     CodeCell.prototype.toJSON = function () {
         var data = Cell.prototype.toJSON.apply(this);
         data.source = this.get_text();
@@ -539,7 +541,7 @@ define([
         if (isFinite(this.input_prompt_number)) {
             data.execution_count = this.input_prompt_number;
         } else {
-            data.execution_count = null; 
+            data.execution_count = null;
         }
     /* Edit - Jay Patel - get uuid and assign it to cell_uuid*/ 
         data.cell_uuid = this.get_uuid();
@@ -572,17 +574,37 @@ define([
         var uuid = s.join("");
         return uuid;
     };
-    
-    /* Edit - Jay Patel - getter and setter methods for cell_uuid */ 
+
     CodeCell.prototype.set_uuid = function(uuid){
         if(uuid===0)
             this.cell_uuid = this.generate_uuid();
         else
             this.cell_uuid = uuid;
+       // var list = this.get_uuid_list();
+       // this.completer.uuid_list =  this.get_uuid_list();
+        //console.log("UUID list: ");
+        //console.log(this.completer.uuid_list);
     };
     
     CodeCell.prototype.get_uuid = function(){
         return this.cell_uuid;
+    };
+
+    /**
+     * get the list of all cell uuids at present time which will be used for completion
+     * @method get_uuid_list
+     * @return the list of cell uuids
+     */
+    CodeCell.prototype.get_uuid_list = function() {
+        var cells = this.notebook.get_cells();
+        var ncells = cells.length;
+        var uuid_list = [];
+        for (var i=0; i<ncells; i++) {
+            var cell = cells[i];
+            if(cell.cell_uuid !== undefined && cell.cell_uuid !== null)
+                uuid_list[i] = cell.cell_uuid;
+        }
+        return uuid_list;
     };
 
     /**
