@@ -38,7 +38,7 @@ define([
     "use strict";
     
     var Cell = cell.Cell;
-    
+
     /* local util for codemirror */
     var posEq = function(a, b) {return a.line === b.line && a.ch === b.ch;};
 
@@ -533,13 +533,13 @@ define([
             this.output_area.fromJSON(data.outputs, data.metadata);
         }
     };
-    
+
     CodeCell.prototype.toJSON = function () {
         var data = Cell.prototype.toJSON.apply(this);
         data.source = this.get_text();
         // is finite protect against undefined and '*' value
         if (isFinite(this.input_prompt_number)) {
-            data.execution_count = this.input_prompt_number;
+            data.execution_count = this.input_prompt_number; 
         } else {
             data.execution_count = null;
         }
@@ -580,10 +580,6 @@ define([
             this.cell_uuid = this.generate_uuid();
         else
             this.cell_uuid = uuid;
-       // var list = this.get_uuid_list();
-       // this.completer.uuid_list =  this.get_uuid_list();
-        //console.log("UUID list: ");
-        //console.log(this.completer.uuid_list);
     };
     
     CodeCell.prototype.get_uuid = function(){
