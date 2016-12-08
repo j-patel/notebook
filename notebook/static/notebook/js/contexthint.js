@@ -22,7 +22,8 @@ define(['codemirror/lib/codemirror'], function(CodeMirror) {
         return arr.indexOf(item) != -1;
     };
 
-    CodeMirror.contextHint = function (editor) {
+    /*CodeMirror.contextHint = function (editor) {*/
+    CodeMirror.contextHint = function (editor, uuid_list) {
         // Find the token at the cursor
         var cur = editor.getCursor(),
             token = editor.getTokenAt(cur),
@@ -30,7 +31,8 @@ define(['codemirror/lib/codemirror'], function(CodeMirror) {
         // If it's not a 'word-style' token, ignore the token.
         // If it is a property, find out what it is a property of.
         var list = [];
-        var clist = getCompletions(token, editor);
+        /*var clist = getCompletions(token, editor);*/
+        var clist = getCompletions(token, editor, uuid_list);
         for (var i = 0; i < clist.length; i++) {
             list.push({
                 str: clist[i],
@@ -49,12 +51,19 @@ define(['codemirror/lib/codemirror'], function(CodeMirror) {
     };
 
     // find all 'words' of current cell
-    var getAllTokens = function (editor) {
+    var getAllTokens = function (editor, uuid_list) {
         var found = [];
 
         // add to found if not already in it
 
 
+        for (var i=0; i<uuid_list.length; i++) {
+            if(uuid_list[i]!==undefined)
+            {
+                    maybeAdd("Out['"+uuid_list[i]+"']");
+                    maybeAdd(uuid_list[i]);
+            }
+        }
         function maybeAdd(str) {
             if (!arrayContains(found, str)) found.push(str);
         }
@@ -84,8 +93,10 @@ define(['codemirror/lib/codemirror'], function(CodeMirror) {
         return found;
     };
 
-    var getCompletions = function(token, editor) {
-        var candidates = getAllTokens(editor);
+    /*var getCompletions = function(token, editor) {
+        var candidates = getAllTokens(editor);*/
+    var getCompletions = function(token, editor, uuid_list) {
+        var candidates = getAllTokens(editor, uuid_list);
         // filter all token that have a common start (but nox exactly) the lenght of the current token
         var lambda = function (x) {
                 return (x.indexOf(token.string) === 0 && x != token.string);

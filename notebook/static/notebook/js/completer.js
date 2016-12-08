@@ -2,11 +2,12 @@
 // Distributed under the terms of the Modified BSD License.
 
 define([
+    'jquery',
     'base/js/utils',
     'base/js/keyboard',
     'notebook/js/contexthint',
     'codemirror/lib/codemirror',
-], function(utils, keyboard, CodeMirror) {
+], function($, utils, keyboard, CodeMirror) {
     "use strict";
 
     // easier key mapping
@@ -187,7 +188,10 @@ define([
                 start = end + start;
             }
         }
-        var results = CodeMirror.contextHint(this.editor);
+        /*var results = CodeMirror.contextHint(this.editor);*/
+        var uuid_list = [];
+        uuid_list = this.cell.get_uuid_list();
+        var results = CodeMirror.contextHint(this.editor, uuid_list);
         var filtered_results = [];
         //remove results from context completion
         //that are already in kernel completion
@@ -253,8 +257,10 @@ define([
 
             //build the container
             var that = this;
-            this.sel.click(function () {
+            this.sel.dblclick(function () {
                 that.pick();
+            });
+            this.sel.focus(function () {
                 that.editor.focus();
             });
             this._handle_keydown = function (cm, event) {
