@@ -29,6 +29,7 @@ define(function (require) {
     var slideshow_celltoolbar = require('notebook/js/celltoolbarpresets/slideshow');
     var scrollmanager = require('notebook/js/scrollmanager');
     var commandpalette = require('notebook/js/commandpalette');
+
     var _SOFT_SELECTION_CLASS = 'jupyter-soft-selected';
 
     function soft_selected(cell){
@@ -142,7 +143,7 @@ define(function (require) {
         this.autosave_interval = 0;
         this.autosave_timer = null;
         // autosave *at most* every two minutes
-        this.minimum_autosave_interval = 12000;
+        this.minimum_autosave_interval = 120000;
         this.notebook_name_blacklist_re = /[\/\\:]/;
         this.nbformat = 4; // Increment this when changing the nbformat
         this.nbformat_minor = this.current_nbformat_minor = 0; // Increment this when changing the nbformat
@@ -2352,8 +2353,6 @@ define(function (require) {
                 trusted = false;
             }
             cell_array[i] = cell.toJSON();
-            console.log("IN notebook.js");
-            console.log(cell_array[i]);
         }
         var data = {
             cells: cell_array,
@@ -2361,7 +2360,6 @@ define(function (require) {
             nbformat: this.nbformat,
             nbformat_minor: this.nbformat_minor
         };
-        alert(data.cell_uuid);
         if (trusted !== this.trusted) {
             this.trusted = trusted;
             this.events.trigger("trust_changed.Notebook", trusted);
