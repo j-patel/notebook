@@ -109,6 +109,7 @@ define([
         this.last_msg_id = null;
         this.completer = null;
 
+        this.edited = true;
         Cell.apply(this,[{
             config: $.extend({}, CodeCell.options_default), 
             keyboard_manager: options.keyboard_manager, 
@@ -215,6 +216,7 @@ define([
 
     CodeCell.prototype.handle_codemirror_keyevent = function (editor, event) {
 
+        this.edited = true;
         var that = this;
         // whatever key is pressed, first, cancel the tooltip request before
         // they are sent, and remove tooltip if any, except for tab again
@@ -334,9 +336,10 @@ define([
         if(this.get_uuid()===undefined || this.get_uuid()===null){
             this.set_uuid(0);
         }
-        
+
+        this.edited = false;
         this.last_msg_id = this.kernel.execute(this.get_text(), callbacks, {silent: false, store_history: true,
-            stop_on_error : stop_on_error, cell_uuid : this.cell_uuid}); /*Edit - Jay Patel - Added cell_uuid*/
+            stop_on_error : stop_on_error, cell_uuid : this.cell_uuid, source: this.get_edited_cells()}); /*Edit - Jay Patel - Added cell_uuid*/
         CodeCell.msg_cells[this.last_msg_id] = this;
         this.render();
         this.events.trigger('execute.CodeCell', {cell: this});
@@ -580,6 +583,10 @@ define([
             this.cell_uuid = this.generate_uuid();
         else
             this.cell_uuid = uuid;
+       // var list = this.get_uuid_list();
+       // this.completer.uuid_list =  this.get_uuid_list();
+        //console.log("UUID list: ");
+        //console.log(this.completer.uuid_list);
     };
     
     CodeCell.prototype.get_uuid = function(){
@@ -621,6 +628,30 @@ define([
         return cont;
     };
 
+    CodeCell.prototype.get_source = function(){
+        var cells = this.notebook.get_cells();
+        var ncells = cells.length;
+        var cell_array = new Array(ncells);
+        var trusted = true;
+        for (var i=0; i<ncells; i++) {
+            var cell = cells[i];
+            if (cell.cell_type === 'code'){
+                cell_array[i] = cell.toJSON();                  
+                cell_array[i].edited = cell.edited;
+                
+                delete cell_array[i].outputs; 
+                delete cell_array[i].metadata;
+                delete cell_array[i].execution_count;  
+                delete cell_array[i].cell_type; 
+            }
+        }
+        return cell_array;
+    };
+
+    CodeCell.prototype.get_edited_cells = function() {
+        return this.get_source();
+        //return this.get_source().filter(function(cell, index){ return (cell.edited == true || cell.edited == false)});
+    }
     // Backwards compatability.
     IPython.CodeCell = CodeCell;
 
