@@ -2005,6 +2005,7 @@ define(function (require) {
                 "Restart & run all cells" : {
                     "class" : "btn-danger",
                     "click" : function () {
+                        that.reset_parent_uuids();
                         that.execute_all_cells();
                     },
                 },
@@ -2032,6 +2033,7 @@ define(function (require) {
                 "Restart & clear all outputs" : {
                     "class" : "btn-danger",
                     "click" : function (){
+                        that.reset_parent_uuids();
                         that.clear_all_output();
                     },
                 },
@@ -2056,7 +2058,9 @@ define(function (require) {
             buttons : {
                 "Restart" : {
                     "class" : "btn-danger",
-                    "click" : function () {},
+                    "click" : function () {
+                        that.reset_parent_uuids();                    
+                    },
                 },
             }
         };
@@ -2067,6 +2071,7 @@ define(function (require) {
     Notebook.prototype._restart_kernel = function (options) {
         var that = this;
         options = options || {};
+        this.reset_edited();
         var resolve_promise, reject_promise;
         var promise = new Promise(function (resolve, reject){
             resolve_promise = resolve;
@@ -2105,6 +2110,16 @@ define(function (require) {
         dialog.modal(options.dialog);
         return promise;
     };
+
+    Notebook.prototype.reset_parent_uuids = function(){
+        var cells = this.get_cells();
+        var ncells = cells.length;
+        for (var i=0; i<ncells; i++) {
+            cells[i].parent_uuids = [];
+            cells[i].element.find(".output").find(".forward-dep").remove();
+        }
+        $(".cell").removeClass("downstream");
+    }
 
     /**
      * Execute cells corresponding to the given indices.
@@ -3040,6 +3055,19 @@ define(function (require) {
         this.events.trigger('checkpoint_deleted.Notebook');
         this.load_notebook(this.notebook_path);
     };
+    
+    /**
+     * This method will be called when the kernel is restarted.
+     * set edited flag for all cells to true
+     */
+    Notebook.prototype.reset_edited = function () {
+        this.get_cells().map(function (cell, i) {
+            if (cell instanceof codecell.CodeCell) {
+                cell.edited = true;
+            }
+        });
+    };
 
     return {'Notebook': Notebook};
+    
 });
