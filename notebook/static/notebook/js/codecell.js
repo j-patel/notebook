@@ -104,6 +104,7 @@ define([
         // even if null for V8 VM optimisation
         this.input_prompt_number = null;
         this.cell_uuid = null; //Edit - Jay Patel - Initialize cell_uuid as null for cell_type="code"
+        this.parent_uuids = []; //list of uuids of the cells which are dependent on the output of current cell
         this.celltoolbar = null;
         this.output_area = null;
         this.last_msg_id = null;
@@ -117,6 +118,7 @@ define([
 
         // Attributes we want to override in this subclass.
         this.cell_type = "code";
+        this.uuids = new Array();
         var that  = this;
         this.element.focusout(
             function() { that.auto_highlight(); }
@@ -217,6 +219,7 @@ define([
     CodeCell.prototype.handle_codemirror_keyevent = function (editor, event) {
 
         this.edited = true;
+        $(".cell").removeClass("downstream");
         var that = this;
         // whatever key is pressed, first, cancel the tooltip request before
         // they are sent, and remove tooltip if any, except for tab again
@@ -331,15 +334,14 @@ define([
         this.set_input_prompt('*');
         this.element.addClass("running");
         var callbacks = this.get_callbacks();
-        
         /*Edit - Jay Patel - set uuid - generate new uuid if no uuid is assigned to a cell*/        
         if(this.get_uuid()===undefined || this.get_uuid()===null){
             this.set_uuid(0);
         }
-
-        this.edited = false;
+        //this.edited = false;
         this.last_msg_id = this.kernel.execute(this.get_text(), callbacks, {silent: false, store_history: true,
             stop_on_error : stop_on_error, cell_uuid : this.cell_uuid, source: this.get_edited_cells()}); /*Edit - Jay Patel - Added cell_uuid*/
+        this.edited = false;        
         CodeCell.msg_cells[this.last_msg_id] = this;
         this.render();
         this.events.trigger('execute.CodeCell', {cell: this});
@@ -351,6 +353,7 @@ define([
      */
     CodeCell.prototype.get_callbacks = function () {
         var that = this;
+        var uuids = [];
         return {
             shell : {
                 reply : $.proxy(this._handle_execute_reply, this),
@@ -360,8 +363,21 @@ define([
                 }
             },
             iopub : {
-                output : function() { 
-                    that.output_area.handle_output.apply(that.output_area, arguments);
+                output : function() {
+                    var cells = that.notebook.get_cells();
+                    var ncells = cells.length;
+                    for (var i=0; i<ncells; i++) {
+                        var cell = cells[i];
+                        if(cell.cell_uuid == arguments['0']['content']['execution_count']) {
+                            if(uuids.lastIndexOf(cell.cell_uuid)==-1){
+                                uuids.push(cell.cell_uuid);
+                                cell.output_area.clear_output();
+                            }
+ 
+                            cell.output_area.handle_output.apply(cell.output_area, arguments);
+                        }                            
+                    }
+//                    that.output_area.handle_output.apply(that.output_area, arguments);
                 }, 
                 clear_output : function() { 
                     that.output_area.handle_clear_output.apply(that.output_area, arguments);
@@ -380,10 +396,59 @@ define([
      * @private
      */
     CodeCell.prototype._handle_execute_reply = function (msg) {
-        
-        var this_execution_count = msg.content.execution_count
-        
+        var this_execution_count = msg.content.execution_count;
+        this.parent_uuids = msg.content.parent_uuids;
+        if(this.parent_uuids.length > 0){
+            var that = this;
+            var forward_dep =  "<div class='output_area forward-dep'>"+
+                                    "<div class='prompt'></div>"+
+                                    "<div class='output_subarea output_text output_stream output_stdout'>"+
+                                        "<pre>Forward Dependencies:<br/>";
+            this.parent_uuids.forEach(function(d){
+                    forward_dep += "<div class='forward-dep'><span class='forward-dep-uuid'>" + d + "</span>&nbsp;&nbsp;&nbsp;&nbsp;<span class='forward-dep-execute'>Execute</span></div>";
+            });         
+            forward_dep += "<br/><span class='forward-dep-execute-all'>Execute All</span>"
+                                        "</pre>"+
+                                    "</div>"+
+                                "</div>";
+            
+            var last_el = $(this.element).find(".output").append(forward_dep);
+            
+            last_el.find(".forward-dep-execute-all").mouseup(function(){
+                var cells = that.notebook.get_cells();
+                var ncells = cells.length;
+                for (var i=0; i<ncells; i++) {
+                    var cell = cells[i];
+                    if(that.parent_uuids.indexOf(cell.cell_uuid) > -1){
+                        cell.select();
+                        cell.focus_cell();
+                        cell.edit_mode();
+                        that.notebook.set_dirty(true);
+                        cell.execute();
+                        cell.element.addClass("downstream");
+                    }
+                }
+            });
+            
+            last_el.find(".forward-dep-execute").mouseup(function(){
+                var cells = that.notebook.get_cells();
+                var ncells = cells.length;
+                var uuid = $(this).parent().find(".forward-dep-uuid").text();
+                for (var i=0; i<ncells; i++) {
+                    var cell = cells[i];
+                    if(uuid == cell.cell_uuid){
+                        cell.select();
+                        cell.focus_cell();
+                        cell.edit_mode();
+                        that.notebook.set_dirty(true);
+                        cell.execute();
+                        cell.element.addClass("downstream");
+                    }
+                }
+            });
+        }
         this.set_input_prompt(this_execution_count);
+        this.set_uuid(this_execution_count);
         this.element.removeClass("running");
         this.events.trigger('set_dirty.Notebook', {value: true});
     };
@@ -578,6 +643,7 @@ define([
         return uuid;
     };
 
+    //generate new uuid and set it to the cell
     CodeCell.prototype.set_uuid = function(uuid){
         if(uuid===0)
             this.cell_uuid = this.generate_uuid();
@@ -589,6 +655,7 @@ define([
         //console.log(this.completer.uuid_list);
     };
     
+    //get uuid of the current cell
     CodeCell.prototype.get_uuid = function(){
         return this.cell_uuid;
     };
@@ -650,7 +717,7 @@ define([
 
     CodeCell.prototype.get_edited_cells = function() {
         return this.get_source();
-        //return this.get_source().filter(function(cell, index){ return (cell.edited == true || cell.edited == false)});
+        //return this.get_source().filter(function(cell, index){ return (cell.edited == false)});
     }
     // Backwards compatability.
     IPython.CodeCell = CodeCell;
