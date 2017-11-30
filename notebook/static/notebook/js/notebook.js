@@ -2119,6 +2119,7 @@ define(function (require) {
             cells[i].element.find(".output").find(".forward-dep").remove();
         }
         $(".cell").removeClass("downstream");
+        $(".cell").removeClass("upstream");
     }
 
     /**
