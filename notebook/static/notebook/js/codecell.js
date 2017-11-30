@@ -103,7 +103,7 @@ define([
         // create all attributed in constructor function
         // even if null for V8 VM optimisation
         this.input_prompt_number = null;
-        this.cell_uuid = null; //Edit - Jay Patel - Initialize cell_uuid as null for cell_type="code"
+        this.cell_uuid = null; //Edit - Initialize cell_uuid as null for cell_type="code"
         this.parent_uuids = []; //list of uuids of the cells which are dependent on the output of current cell
         this.celltoolbar = null;
         this.output_area = null;
@@ -219,7 +219,19 @@ define([
     CodeCell.prototype.handle_codemirror_keyevent = function (editor, event) {
 
         this.edited = true;
+        if(typeof this.metadata.parent_uuids !="undefined" && this.metadata.parent_uuids.length > 0){
+            console.log(this.metadata.parent_uuids);
+            var cells = this.notebook.get_cells();
+            var ncells = cells.length;
+            for (var i=0; i<ncells; i++) {
+                var cell = cells[i];
+                if(this.metadata.parent_uuids.indexOf(cell.cell_uuid) > -1){
+                    cell.edited = true;
+                }
+            }
+        }
         $(".cell").removeClass("downstream");
+        $(".cell").removeClass("upstream");
         var that = this;
         // whatever key is pressed, first, cancel the tooltip request before
         // they are sent, and remove tooltip if any, except for tab again
@@ -334,13 +346,13 @@ define([
         this.set_input_prompt('*');
         this.element.addClass("running");
         var callbacks = this.get_callbacks();
-        /*Edit - Jay Patel - set uuid - generate new uuid if no uuid is assigned to a cell*/        
+        /*Edit - set uuid - generate new uuid if no uuid is assigned to a cell*/        
         if(this.get_uuid()===undefined || this.get_uuid()===null){
             this.set_uuid(0);
         }
         //this.edited = false;
         this.last_msg_id = this.kernel.execute(this.get_text(), callbacks, {silent: false, store_history: true,
-            stop_on_error : stop_on_error, cell_uuid : this.cell_uuid, source: this.get_edited_cells()}); /*Edit - Jay Patel - Added cell_uuid*/
+            stop_on_error : stop_on_error, cell_uuid : this.cell_uuid, source: this.get_edited_cells()}); /*Edit - Added cell_uuid*/
         this.edited = false;        
         CodeCell.msg_cells[this.last_msg_id] = this;
         this.render();
@@ -398,29 +410,65 @@ define([
     CodeCell.prototype._handle_execute_reply = function (msg) {
         var this_execution_count = msg.content.execution_count;
         this.parent_uuids = msg.content.parent_uuids;
+        var upstream = msg.content.upstream;
         if(this.parent_uuids.length > 0){
+            this.metadata.parent_uuids = this.parent_uuids;            
+        }
+        var is_downstream = (typeof this.metadata.parent_uuids !="undefined" && this.metadata.parent_uuids.length > 0);
+        
+        if(is_downstream == true || upstream.length > 0){
             var that = this;
-            var forward_dep =  "<div class='output_area forward-dep'>"+
+            var dependency =  "<div class='output_area forward-dep'>"+
                                     "<div class='prompt'></div>"+
                                     "<div class='output_subarea output_text output_stream output_stdout'>"+
-                                        "<pre>Forward Dependencies:<br/>";
-            this.parent_uuids.forEach(function(d){
-                    forward_dep += "<div class='forward-dep'><span class='forward-dep-uuid'>" + d + "</span>&nbsp;&nbsp;&nbsp;&nbsp;<span class='forward-dep-execute'>Execute</span></div>";
-            });         
-            forward_dep += "<br/><span class='forward-dep-execute-all'>Execute All</span>"
-                                        "</pre>"+
-                                    "</div>"+
-                                "</div>";
+                                    "<pre>";
+
+            if(is_downstream == true){
+                dependency +=          "<div class='downstream-dep'>Forward Dependencies:<br/>";
+                that.metadata.parent_uuids.forEach(function(d, i){
+                        if(i < 3){
+                            //Show only 3 forward dependencies(3 last executed cells in downstream)
+                            dependency += "<div class='forward-dep'><span class='forward-dep-uuid'>" + d + "</span>&nbsp;&nbsp;&nbsp;&nbsp;<span class='forward-dep-execute'>Execute</span></div>";
+                        }
+                });         
+                dependency += "<br/><span class='forward-dep-select-all'>Select All</span>&nbsp;&nbsp;<span class='forward-dep-execute-all'>Execute All</span>"+
+                                "</div>"; 
+            }
+
+            if(upstream.length > 0){
+                dependency += "<div class='upstream-dep'>Click here to see upstream dependencies</div>";
+            }
+            dependency +="</pre>"+
+                        "</div>"+
+                    "</div>";
             
-            var last_el = $(this.element).find(".output").append(forward_dep);
+            var last_el = $(this.element).find(".output").append(dependency);
             
-            last_el.find(".forward-dep-execute-all").mouseup(function(){
+            last_el.find(".forward-dep-select-all").click(function(){
+                $(".cell").removeClass("downstream");
+                $(".cell").removeClass("upstream");
                 var cells = that.notebook.get_cells();
                 var ncells = cells.length;
                 for (var i=0; i<ncells; i++) {
                     var cell = cells[i];
-                    if(that.parent_uuids.indexOf(cell.cell_uuid) > -1){
-                        cell.select();
+                    if(that.metadata.parent_uuids.indexOf(cell.cell_uuid) > -1){
+                        cell.focus_cell();
+                        cell.edit_mode();
+                        that.notebook.set_dirty(true);
+                        cell.element.addClass("downstream");
+                    }
+                }
+            });
+
+            last_el.find(".forward-dep-execute-all").click(function(){
+                $(".cell").removeClass("downstream");                
+                $(".cell").removeClass("upstream");
+                var cells = that.notebook.get_cells();
+                var ncells = cells.length;
+                for (var i=0; i<ncells; i++) {
+                    var cell = cells[i];
+                    if(that.metadata.parent_uuids.indexOf(cell.cell_uuid) > -1){
+                        //cell.select();
                         cell.focus_cell();
                         cell.edit_mode();
                         that.notebook.set_dirty(true);
@@ -430,14 +478,16 @@ define([
                 }
             });
             
-            last_el.find(".forward-dep-execute").mouseup(function(){
+            last_el.find(".forward-dep-execute").click(function(){
+                $(".cell").removeClass("downstream");
+                $(".cell").removeClass("upstream");
                 var cells = that.notebook.get_cells();
                 var ncells = cells.length;
                 var uuid = $(this).parent().find(".forward-dep-uuid").text();
                 for (var i=0; i<ncells; i++) {
                     var cell = cells[i];
                     if(uuid == cell.cell_uuid){
-                        cell.select();
+                        //cell.select();
                         cell.focus_cell();
                         cell.edit_mode();
                         that.notebook.set_dirty(true);
@@ -446,7 +496,25 @@ define([
                     }
                 }
             });
+            
+            last_el.find(".upstream-dep").click(function(){
+                $(".cell").removeClass("downstream");
+                $(".cell").removeClass("upstream");
+                var cells = that.notebook.get_cells();
+                var ncells = cells.length;
+                for (var i=0; i<ncells; i++) {
+                    var cell = cells[i];
+                    if(upstream.indexOf(cell.cell_uuid) > -1){
+                        //cell.select();
+                        cell.focus_cell();
+                        //cell.edit_mode();
+                        //that.notebook.set_dirty(true);
+                        cell.element.addClass("upstream");
+                    }
+                }
+            });
         }
+        
         this.set_input_prompt(this_execution_count);
         this.set_uuid(this_execution_count);
         this.element.removeClass("running");
@@ -593,7 +661,7 @@ define([
                 this.auto_highlight();
             }
 
-    /*Edit - Jay Patel - set uuid as input_prompt and as uuid */
+    /*Edit - set uuid as input_prompt and as uuid */
             //this.set_input_prompt(data.execution_count);
             this.set_input_prompt(data.cell_uuid);
             this.set_uuid(data.cell_uuid); /*----------------*/
@@ -611,7 +679,7 @@ define([
         } else {
             data.execution_count = null;
         }
-    /* Edit - Jay Patel - get uuid and assign it to cell_uuid*/ 
+    /* Edit - get uuid and assign it to cell_uuid*/ 
         data.cell_uuid = this.get_uuid();
         var outputs = this.output_area.toJSON();
         data.outputs = outputs;
@@ -625,7 +693,7 @@ define([
         return data;
     };
     
-    /* Edit - Jay Patel - generate uuid and getter and setter methods for cell_uuid */ 
+    /* Edit - generate uuid and getter and setter methods for cell_uuid */ 
     /*Reference taken from /base/js/utils.js*/
     CodeCell.prototype.generate_uuid = function () {
         /**
